@@ -17,8 +17,10 @@ description: >-
 
 ## 핵심 전제 (먼저 이해할 것)
 
-1. **증권 "PDF"는 표준 PDF가 아니다.** 페이지별 `.jpeg` 이미지와 `manifest.json`을 담은
-   ZIP 아카이브다. pdfplumber/pdfminer로 안 열린다. `extract_pages.py`로 이미지를 푼다.
+1. **증권 "PDF"는 두 가지 형식이 있다.** ① 페이지별 `.jpeg` + `manifest.json`을 담은
+   **ZIP 아카이브**(pdfplumber/pdfminer로 안 열림), ② 스캔 이미지를 담은 **표준 PDF**(`%PDF-…`).
+   `extract_pages.py`가 형식을 자동 감지해 ①은 ZIP으로 풀고, ②는 **PyMuPDF로 페이지를 이미지로
+   렌더링**한다(텍스트 레이어 없는 스캔본도 처리). 이후 단계는 형식과 무관하게 같은 `pages.json`을 쓴다.
 2. **tesseract OCR은 이 스캔에서 신뢰도가 낮다.** 한글은 오인식, 증권번호·금액 숫자도 가끔
    틀린다(예: 8025688294 → 8026688204). 따라서 **최종 값 판독은 반드시 클로드가
    `crop_region.py`로 만든 확대 이미지를 `view` 도구로 직접 보고** 한다. OCR(`index_certs.py`)은
@@ -62,7 +64,7 @@ description: >-
 
 환경 준비(최초 1회):
 ```bash
-pip install xlrd openpyxl pillow --break-system-packages -q
+pip install xlrd openpyxl pillow pymupdf --break-system-packages -q
 # 한글 OCR이 필요하면 (보조용):
 mkdir -p /tmp/tessdata && cd /tmp/tessdata
 curl -sL -o kor.traineddata https://raw.githubusercontent.com/tesseract-ocr/tessdata/main/kor.traineddata
@@ -79,9 +81,9 @@ python parse_excel.py --xls <원본.xls> --out parsed.json
 `증권번호`가 숫자가 아닌 행(예: `갱신계약`)은 증권이 없으므로 **검토 사유 '증권 없음'으로 건너뛴다**.
 
 ### 2단계 — 증권 페이지 추출 + 증권번호 인덱싱
-PDF마다:
+PDF마다 (형식 자동 감지; 표준 PDF는 PyMuPDF로 렌더, 흐리면 `--zoom 3.5~4.0`):
 ```bash
-python extract_pages.py --pdf <증권.pdf> --workdir /tmp/cert_<이름>
+python extract_pages.py --pdf <증권.pdf> --workdir /tmp/cert_<이름> [--zoom 3.0]
 TESSDATA_PREFIX=/tmp/tessdata python index_certs.py \
   --pages /tmp/cert_<이름>/pages.json --out /tmp/cert_<이름>/index.json
 ```

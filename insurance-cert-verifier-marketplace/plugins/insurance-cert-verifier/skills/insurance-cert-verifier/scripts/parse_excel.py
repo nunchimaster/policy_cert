@@ -37,7 +37,7 @@ def code_str(v):
 def parse(xls_path):
     wb = xlrd.open_workbook(xls_path)
     names = wb.sheet_names()
-    detail_name = next(n for n in names if n != "대상요약")
+    detail_names = [n for n in names if n != "대상요약"]  # 상세 시트는 여러 개일 수 있다
 
     # --- 대상요약 ---
     s1 = wb.sheet_by_name("대상요약")
@@ -57,39 +57,43 @@ def parse(xls_path):
             "xls_row": r,  # 결과 기록 시 매칭용
         })
 
-    # --- 상세 시트 (보종코드별 보장 텍스트/금액) ---
-    s2 = wb.sheet_by_name(detail_name)
+    # --- 상세 시트들 (보종코드별 보장 텍스트/금액) ---
+    # 워크북에 상세 시트가 여러 개일 수 있다(예: '신규개정' + '버전추가').
+    # 모두 같은 컬럼 구조이므로 순서대로 읽어 코드별로 누적 병합한다.
     coverage = {}
-    for r in range(3, s2.nrows):  # 데이터는 3행(0-index)부터
-        code = code_str(col(s2, r, 0))
-        if not code or not code.isdigit():
-            continue
-        H = str(col(s2, r, 7)).strip()   # 보장내용01 (보장명칭)
-        I = str(col(s2, r, 8)).strip()   # 보장내용02 (보장내역)
-        수식 = str(col(s2, r, 9)).strip()  # 보장계산수식구분코드01 (01=비율, 13=절대금액)
-        분자 = to_num(col(s2, r, 11))
-        분모 = to_num(col(s2, r, 12))
-        라인 = col(s2, r, 3)
-        cov = coverage.setdefault(code, {
-            "상품명": str(col(s2, r, 1)).strip(),
-            "명칭라인": [], "내역라인": [], "금액라인": [],
-        })
-        if H:
-            cov["명칭라인"].append(H)
-        if I:
-            cov["내역라인"].append(I)
-        if 분자 > 0 and 분모 > 0:
-            cov["금액라인"].append({
-                "텍스트": I, "수식구분코드": 수식,
-                "분자": int(분자), "분모": int(분모), "라인": str(라인),
+    for detail_name in detail_names:
+        s2 = wb.sheet_by_name(detail_name)
+        for r in range(3, s2.nrows):  # 데이터는 3행(0-index)부터
+            code = code_str(col(s2, r, 0))
+            if not code or not code.isdigit():
+                continue
+            H = str(col(s2, r, 7)).strip()   # 보장내용01 (보장명칭)
+            I = str(col(s2, r, 8)).strip()   # 보장내용02 (보장내역)
+            수식 = str(col(s2, r, 9)).strip()  # 보장계산수식구분코드01 (01=비율, 13=절대금액)
+            분자 = to_num(col(s2, r, 11))
+            분모 = to_num(col(s2, r, 12))
+            라인 = col(s2, r, 3)
+            cov = coverage.setdefault(code, {
+                "상품명": str(col(s2, r, 1)).strip(),
+                "시트": detail_name,
+                "명칭라인": [], "내역라인": [], "금액라인": [],
             })
+            if H:
+                cov["명칭라인"].append(H)
+            if I:
+                cov["내역라인"].append(I)
+            if 분자 > 0 and 분모 > 0:
+                cov["금액라인"].append({
+                    "텍스트": I, "수식구분코드": 수식,
+                    "분자": int(분자), "분모": int(분모), "라인": str(라인),
+                })
 
     # 명칭/내역 합본 생성
     for code, cov in coverage.items():
         cov["보장명칭"] = "".join(cov["명칭라인"])
         cov["보장내역"] = "\n".join(cov["내역라인"])
 
-    return {"detail_sheet": detail_name, "대상요약": targets, "보장": coverage}
+    return {"detail_sheets": detail_names, "대상요약": targets, "보장": coverage}
 
 
 def main():
